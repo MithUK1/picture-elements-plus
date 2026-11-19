@@ -34,7 +34,7 @@
  * element, the card, the card editor, the sample plan and registration.
  */
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const CARD_TYPE = "picture-elements-plus";
 const TEXT_TYPE = "picture-elements-plus-text";
@@ -902,9 +902,9 @@ class PictureElementsPlusRoomEditor extends SimpleElementEditor {
     const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
     this._summary.textContent =
       !this._config.area && !lights.length && !alerts.length
-        ? "Pick a room, or some lights and sensors, for it to follow. Resize it with the handle on its corner in the preview."
+        ? "Pick a room, or some lights and sensors, for it to follow. Drag any of its corners in the preview to resize it."
         : `Following ${count(lights.length, "light")} and ${count(alerts.length, "sensor")}. ` +
-          "Resize it with the handle on its corner in the preview.";
+          "Drag any of its corners in the preview to resize it.";
     this._renderSuggestions();
   }
 
@@ -1033,7 +1033,7 @@ const CARD_STYLES = `
     box-shadow: 0 0 0 2px rgba(var(--rgb-primary-color, 3, 169, 244), 0.3);
   }
 
-  /* Corner handle for resizing a room glow */
+  /* Corner handles for resizing a room glow */
   .handle {
     position: absolute;
     display: none;
@@ -1048,6 +1048,7 @@ const CARD_STYLES = `
     cursor: nwse-resize;
     touch-action: none;
   }
+  .handle.top-right, .handle.bottom-left { cursor: nesw-resize; }
   .handle.shown { display: block; }
 
   .chip {
@@ -1118,7 +1119,10 @@ class PictureElementsPlusCard extends HTMLElement {
           <div class="line vertical cross"></div>
           <div class="line horizontal cross"></div>
           <div class="picked-boxes"></div>
-          <div class="handle" title="Drag to resize"></div>
+          <div class="handle top-left" data-corner="top-left" title="Drag to resize"></div>
+          <div class="handle top-right" data-corner="top-right" title="Drag to resize"></div>
+          <div class="handle bottom-left" data-corner="bottom-left" title="Drag to resize"></div>
+          <div class="handle bottom-right" data-corner="bottom-right" title="Drag to resize"></div>
           <div class="chip position"></div>
           <div class="chip size"></div>
         </div>
@@ -1132,7 +1136,7 @@ class PictureElementsPlusCard extends HTMLElement {
     this._crossH = $(".cross.horizontal");
     this._quarters = this.shadowRoot.querySelectorAll(".quarter");
     this._pickedBoxes = $(".picked-boxes");
-    this._handle = $(".handle");
+    this._handles = [...this.shadowRoot.querySelectorAll(".handle")];
     this._positionChip = $(".position");
     this._sizeChip = $(".size");
 
@@ -1398,7 +1402,7 @@ class PictureElementsPlusCard extends HTMLElement {
   /* ---- picking several elements ---- */
 
   _onPointerDown(ev) {
-    if (ev.composedPath().includes(this._handle)) return;
+    if (this._handles.some((handle) => ev.composedPath().includes(handle))) return;
     const index = this._indexFromEvent(ev);
     this._dragIndex = index;
     const link = this._link;
@@ -1470,41 +1474,61 @@ class PictureElementsPlusCard extends HTMLElement {
 
   /* ---- resizing room glows ---- */
 
+  // Dragging a corner moves just that corner: the opposite one stays put,
+  // so the glow grows or shrinks in the direction you pull.
   _setUpHandle() {
     let resize;
-    this._handle.addEventListener("pointerdown", (ev) => {
-      const index = this._bridge?.selectedIndex;
-      const node = this._renderedElements[index];
-      const position = positionOf(this._elements[index]);
-      const root = this._root;
-      if (!node || !position || !root) return;
-      ev.stopPropagation();
-      ev.preventDefault();
-      this._handle.setPointerCapture(ev.pointerId);
-      resize = { index, node, position, rect: root.getBoundingClientRect() };
-    });
-    this._handle.addEventListener("pointermove", (ev) => {
-      if (!resize) return;
-      const { node, position, rect } = resize;
-      // The room is centred on its position, so it grows both ways.
-      const x = ((ev.clientX - rect.left) / rect.width) * 100;
-      const y = ((ev.clientY - rect.top) / rect.height) * 100;
-      resize.width = roundTo(clamp(2 * Math.abs(x - position.left), 1, 100), 0.5);
-      resize.height = roundTo(clamp(2 * Math.abs(y - position.top), 1, 100), 0.5);
-      node.style.width = `${resize.width}%`;
-      node.style.height = `${resize.height}%`;
-      this._scheduleOverlay();
-    });
-    const finish = () => {
-      if (resize?.width) {
-        this._link?.events.dispatchEvent(new CustomEvent("resize", {
-          detail: { index: resize.index, width: resize.width, height: resize.height },
-        }));
-      }
-      resize = undefined;
-    };
-    this._handle.addEventListener("pointerup", finish);
-    this._handle.addEventListener("pointercancel", finish);
+    for (const handle of this._handles) {
+      handle.addEventListener("pointerdown", (ev) => {
+        const index = this._bridge?.selectedIndex;
+        const element = this._elements[index];
+        const node = this._renderedElements[index];
+        const position = positionOf(element);
+        const root = this._root;
+        if (!node || !position || !root) return;
+        ev.stopPropagation();
+        ev.preventDefault();
+        handle.setPointerCapture(ev.pointerId);
+        const width = parsePercent(node.style.width) ?? parsePercent(element.style?.width) ?? 20;
+        const height = parsePercent(node.style.height) ?? parsePercent(element.style?.height) ?? 20;
+        const corner = handle.dataset.corner;
+        // The corner that doesn't move.
+        const fixed = {
+          left: position.left + (corner.endsWith("left") ? width / 2 : -width / 2),
+          top: position.top + (corner.startsWith("top") ? height / 2 : -height / 2),
+        };
+        resize = { index, node, fixed, rect: root.getBoundingClientRect() };
+      });
+      handle.addEventListener("pointermove", (ev) => {
+        if (!resize) return;
+        const { node, fixed, rect } = resize;
+        const x = clamp(((ev.clientX - rect.left) / rect.width) * 100);
+        const y = clamp(((ev.clientY - rect.top) / rect.height) * 100);
+        resize.width = roundTo(Math.max(Math.abs(x - fixed.left), 1), 0.5);
+        resize.height = roundTo(Math.max(Math.abs(y - fixed.top), 1), 0.5);
+        const towards = (from, to, size) => from + (to < from ? -size : size) / 2;
+        resize.left = roundTo(towards(fixed.left, x, resize.width), 0.1);
+        resize.top = roundTo(towards(fixed.top, y, resize.height), 0.1);
+        Object.assign(node.style, {
+          left: `${resize.left}%`,
+          top: `${resize.top}%`,
+          width: `${resize.width}%`,
+          height: `${resize.height}%`,
+        });
+        this._scheduleOverlay();
+      });
+      const finish = () => {
+        if (resize?.width) {
+          const { index, left, top, width, height } = resize;
+          this._link?.events.dispatchEvent(new CustomEvent("resize", {
+            detail: { index, left, top, width, height },
+          }));
+        }
+        resize = undefined;
+      };
+      handle.addEventListener("pointerup", finish);
+      handle.addEventListener("pointercancel", finish);
+    }
   }
 
   /* ---- picture tabs ---- */
@@ -1657,7 +1681,7 @@ class PictureElementsPlusCard extends HTMLElement {
       this._positionChip.style.display = "";
       this._positionChip.textContent =
         `drop at left ${roundTo(drop.left, 0.1)}%  \u00b7  top ${roundTo(drop.top, 0.1)}%`;
-      this._handle.classList.remove("shown");
+      this._hideHandles();
       return;
     }
 
@@ -1727,20 +1751,34 @@ class PictureElementsPlusCard extends HTMLElement {
     this._pickedBoxes.innerHTML = boxes.join("");
   }
 
-  // The resize handle sits on the bottom-right corner of a selected room glow.
+  // A selected room glow gets a resize handle on each corner.
   _drawHandle(index) {
     const element = this._elements[index];
     const node = this._renderedElements[index];
-    const position = positionOf(element);
-    if (element?.type !== `custom:${ROOM_TYPE}` || !node || !position) {
-      this._handle.classList.remove("shown");
+    if (element?.type !== `custom:${ROOM_TYPE}` || !node) {
+      this._hideHandles();
+      return;
+    }
+    const position = {
+      left: parsePercent(node.style.left) ?? positionOf(element)?.left,
+      top: parsePercent(node.style.top) ?? positionOf(element)?.top,
+    };
+    if (position.left === undefined || position.top === undefined) {
+      this._hideHandles();
       return;
     }
     const width = parsePercent(node.style.width) ?? parsePercent(element.style?.width) ?? 20;
     const height = parsePercent(node.style.height) ?? parsePercent(element.style?.height) ?? 20;
-    this._handle.style.left = `${position.left + width / 2}%`;
-    this._handle.style.top = `${position.top + height / 2}%`;
-    this._handle.classList.add("shown");
+    for (const handle of this._handles) {
+      const corner = handle.dataset.corner;
+      handle.style.left = `${position.left + (corner.endsWith("left") ? -width : width) / 2}%`;
+      handle.style.top = `${position.top + (corner.startsWith("top") ? -height : height) / 2}%`;
+      handle.classList.add("shown");
+    }
+  }
+
+  _hideHandles() {
+    for (const handle of this._handles) handle.classList.remove("shown");
   }
 }
 
@@ -2778,14 +2816,15 @@ class PictureElementsPlusEditor extends HTMLElement {
     this._emitConfig(withElements(this._config, this._pictureIndex, elements));
   }
 
-  // The preview's corner handle resized a room glow.
-  _resizeElement({ index, width, height }) {
+  // A corner handle in the preview resized a room glow. Its middle moves
+  // too, since only the dragged corner should move.
+  _resizeElement({ index, left, top, width, height }) {
     const elements = [...this._pictureElements];
     if (!elements[index]) return;
-    elements[index] = {
-      ...elements[index],
-      style: { ...elements[index].style, width: `${width}%`, height: `${height}%` },
-    };
+    const style = { ...elements[index].style, width: `${width}%`, height: `${height}%` };
+    if (left !== undefined) style.left = `${left}%`;
+    if (top !== undefined) style.top = `${top}%`;
+    elements[index] = { ...elements[index], style };
     this._emitConfig(withElements(this._config, this._pictureIndex, elements));
     // HA's form for the open element keeps its own copy of the element.
     // Moving it to where it already is makes HA pick up the new size.
