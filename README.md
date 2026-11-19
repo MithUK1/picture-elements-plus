@@ -331,9 +331,10 @@ A room glow is a shape you put over a room. It:
 - always sits underneath icons and labels
 
 Add one with **Other > Room glow** (if you've picked a room in the room list,
-it's set to that room). Drag it into place, then drag the round handle on
-its bottom-right corner to resize it. You can also type the width and height
-in its editor.
+it's set to that room). Drag it into place, then drag any of the round
+handles on its corners. The opposite corner stays where it is, so you can
+line one corner up with the room and pull the other out to fit. You can also
+type the width and height in its editor.
 
 Pick a **Room** and it follows that room's lights, and its motion,
 occupancy, presence, door, window and opening sensors. To choose them
