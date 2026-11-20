@@ -34,7 +34,7 @@
  * element, the card, the card editor, the sample plan and registration.
  */
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 const CARD_TYPE = "picture-elements-plus";
 const TEXT_TYPE = "picture-elements-plus-text";
@@ -749,13 +749,18 @@ class PictureElementsPlusRoom extends HTMLElement {
           border-radius: 6px;
           box-sizing: border-box;
         }
+        /* A soft pool of light: strongest in the middle, fading out to the
+           edges, rather than a flat block of colour. */
         .glow {
           opacity: 0;
-          transition: opacity 0.5s, background-color 0.5s, box-shadow 0.5s;
+          background: radial-gradient(ellipse farthest-corner, var(--glow-color) 0%,
+            color-mix(in srgb, var(--glow-color) 55%, transparent) 75%, transparent 100%);
+          filter: blur(calc(var(--pep-unit, 6px) * 0.4));
+          transition: opacity 0.15s ease-out;
         }
-        .glow.lit, .glow.alert { opacity: 0.35; }
+        .glow.lit, .glow.alert { opacity: var(--glow-strength, 0.5); }
         .glow.alert { animation: pulse 1.6s ease-in-out infinite; }
-        @keyframes pulse { 50% { opacity: 0.55; } }
+        @keyframes pulse { 50% { opacity: 0.75; } }
         @media (prefers-reduced-motion: reduce) { .glow.alert { animation: none; } }
         .outline {
           display: none;
@@ -806,18 +811,37 @@ class PictureElementsPlusRoom extends HTMLElement {
     const entities = this._entities || { lights: [], alerts: [] };
     const state = roomState(hass, this._config, entities);
 
-    let color = "transparent";
+    // Only change the colour while it's showing, so it fades out in the
+    // colour it had rather than flashing to nothing.
     if (state === "alert") {
-      color = cssColor(this._config.alert_color) || "var(--red-color, #f44336)";
+      const color = cssColor(this._config.alert_color) || "var(--red-color, #f44336)";
+      this._glow.style.setProperty("--glow-color", color);
+      this._glow.style.setProperty("--glow-strength", "0.55");
     } else if (state === "lit") {
-      color = cssColor(this._config.color) || this._lightColor(entities.lights) || "var(--amber-color, #ffc107)";
+      const own = cssColor(this._config.color);
+      const light = own ? undefined : this._lightColor(entities.lights);
+      // A light's own colour is often fully saturated, which looks harsh as
+      // a fill. Mixing in some white makes it read as light, not paint.
+      const color = own || (light && `color-mix(in srgb, ${light} 65%, white)`) || "var(--amber-color, #ffc107)";
+      this._glow.style.setProperty("--glow-color", color);
+      this._glow.style.setProperty("--glow-strength", String(this._strength(entities.lights)));
     }
     this._glow.className = `glow ${state}`;
-    this._glow.style.backgroundColor = color;
-    this._glow.style.boxShadow = state ? `0 0 calc(var(--pep-unit, 6px) * 3) ${color}` : "";
 
     const area = this._config.area && hass?.areas?.[this._config.area];
     this._name.textContent = area?.name || this._config.area || "Room glow";
+  }
+
+  // Brighter lights glow more strongly, from faint at 1% to full at 100%.
+  _strength(lights) {
+    const levels = lights
+      .map((id) => this._hass?.states[id])
+      .filter((stateObj) => stateObj?.state === "on")
+      .map((stateObj) => stateObj.attributes.brightness)
+      .filter((brightness) => typeof brightness === "number");
+    if (!levels.length) return 0.5;
+    const brightest = Math.max(...levels) / 255;
+    return Math.round((0.25 + 0.35 * brightest) * 100) / 100;
   }
 
   // The average colour of the lights that are on, if they have one.
