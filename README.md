@@ -74,18 +74,22 @@ there's no dragging, snapping or nudging.
 
 ### From the Marketplace (recommended)
 
-Home Assistant 2026.11 replaced HACS with the built-in Marketplace. Until
-the card is in the Marketplace catalogue, add it from a link:
-
 1. Go to **Settings > Marketplace**.
-2. Select **Add from link** in the upper-right corner.
-3. Enter `MithUK1/picture-elements-plus` and select **Add**. If it asks for
-   a type, choose **Dashboard**. You'll need to connect GitHub the first time.
-4. Open **Picture Elements Plus** in the list and select **Install**.
-5. Reload your browser.
+2. Search for **Picture Elements Plus** and open it.
+3. Select **Install**, then reload your browser.
 
 The Marketplace adds the dashboard resource for you. New versions appear
 under **Settings > Updates**.
+
+If it doesn't show up in the search (for example on a Home Assistant that
+hasn't refreshed the catalogue yet), add it from a link instead:
+
+1. In **Settings > Marketplace**, select **Add from link** in the upper-right
+   corner.
+2. Enter `MithUK1/picture-elements-plus` and select **Add**. If it asks for
+   a type, choose **Dashboard**. You'll need to connect GitHub the first time.
+3. Open **Picture Elements Plus** in the list, select **Install**, and reload
+   your browser.
 
 ### By hand
 
